@@ -1,0 +1,68 @@
+{
+  "name": "vscode-configurer",
+  "displayName": "工作区配置助手",
+  "description": "一键配置当前工作区的 .vscode 目录：选择编程语言、自动探测本机已安装的编译器/解释器，并生成或深度合并 settings.json、launch.json、tasks.json。",
+  "version": "0.0.1",
+  "publisher": "xuzihan-dev",
+  "author": {
+    "name": "Xuzihanis",
+    "email": "xuzihan20100107@outlook.com",
+    "url": "https://github.com/Xuzihanis"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xuzihanis/vscode-configurer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Xuzihanis/vscode-configurer/issues"
+  },
+  "homepage": "https://github.com/Xuzihanis/vscode-configurer#readme",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "vscode",
+    "configuration",
+    "workspace",
+    "toolchain",
+    "settings",
+    "launch",
+    "tasks",
+    "debug",
+    "c++",
+    "python",
+    "java",
+    "go",
+    "node",
+    "typescript"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:vscode-configurer.configureWorkspace"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-configurer.configureWorkspace",
+        "title": "Configure .vscode",
+        "category": "Configurer"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

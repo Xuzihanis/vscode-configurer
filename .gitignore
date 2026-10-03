@@ -1,0 +1,26 @@
+# 依赖
+node_modules/
+
+# 编译产物（由 npm run compile 生成；分发走 .vsix，不提交构建输出）
+out/
+*.tsbuildinfo
+
+# 打包产物（由 npm run package 生成，作为 GitHub Release 附件分发）
+*.vsix
+
+# 测试运行时
+.vscode-test/
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+
+# 编辑器 / 操作系统
+.DS_Store
+Thumbs.db
+
+# 内部开发笔记（含设计取舍与已知问题），不随仓库公开
+CLAUDE.md
+
+# 注意：不要忽略 .vscode/ —— 本项目的 launch.json 与 tasks.json
+# 是给贡献者用的调试配置，需要提交。

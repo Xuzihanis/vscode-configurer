@@ -1,0 +1,25 @@
+# 打包时排除的文件（语法同 .gitignore）。
+# 运行时只需要 out/ 里的编译产物 + package.json + README/CHANGELOG/LICENSE + images/icon.png。
+# 注意：不要在这里排除 out/**，否则装出来的扩展会因为找不到 main 入口而完全不可用。
+
+# 源码与构建输入
+src/**
+**/*.ts
+!**/*.d.ts
+tsconfig.json
+
+# 开发依赖与工具链（本扩展没有运行时依赖，全部是 devDependencies）
+node_modules/**
+.vscode/**
+.vscode-test/**
+.gitignore
+
+# 调试产物与打包产物
+**/*.map
+*.vsix
+
+# 内部开发文档，不应随扩展发布
+CLAUDE.md
+
+# 截图（README 里以相对路径引用，无需打进包里）
+docs/**
