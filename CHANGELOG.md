@@ -19,6 +19,19 @@
 - 为 C/C++ 产物路径增加按源文件类型区分，避免同目录下 `foo.c` 与 `foo.cpp` 互相覆盖。
 - 在极简 Linux 环境（无 `which`）下回退到 `command -v`。
 
+## [0.0.4] - 2026-10-04
+
+### 新增
+
+- **检测并提示「过期配置」。** 合并只增不减，旧版本生成的条目会被原样保留，导致升级扩展后
+  修复**静默失效** —— 用户看到的现象是"我明明装了新版本，问题还在"。现在每次运行都会比对
+  已有条目与本版本的生成规则，发现「名字相同、内容不同」的条目时弹出警告，并给出
+  「删除 `.vscode` 后重新运行」的指引。
+
+  这只是提示：**不修改任何文件，也不改变合并行为**。措辞上不会断言这些条目是旧版本生成的 ——
+  内容不同同样可能是用户自己改过。相关实现：`findStaleEntries()` / `warnAboutStaleEntries()`。
+  `generateConfigs()` 相应地由返回 `void` 改为返回 `ConfigFileResult[]`（向后兼容的放宽）。
+
 ## [0.0.3] - 2026-10-04
 
 ### 修复
@@ -98,7 +111,8 @@
 - C/C++ 按源文件类型生成两条构建任务：C 文件用 `gcc`，C++ 文件用 `g++`。
 - 扩展打包信息：`icon`、`repository`、`keywords` 等。
 
-[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.4
 [0.0.3]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.3
 [0.0.2]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.1

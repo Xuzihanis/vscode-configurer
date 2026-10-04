@@ -2,7 +2,7 @@
   "name": "vscode-configurer",
   "displayName": "工作区配置助手",
   "description": "一键配置当前工作区的 .vscode 目录：选择编程语言、自动探测本机已安装的编译器/解释器，并生成或深度合并 settings.json、launch.json、tasks.json。",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "xuzihan-dev",
   "author": {
     "name": "Xuzihanis",

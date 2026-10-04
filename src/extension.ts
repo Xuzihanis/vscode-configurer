@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { generateConfigs } from './configGenerator';
+import { ConfigFileResult, generateConfigs } from './configGenerator';
 import { LanguageId, SUPPORTED_LANGUAGES, selectLanguage } from './languageSelector';
 import { ToolchainInfo, detectToolchain, isWindows } from './toolchainDetector';
 
@@ -81,10 +81,41 @@ async function configureWorkspace(channel: vscode.OutputChannel): Promise<void> 
 
   channel.appendLine(toolchain ? `使用工具链：${toolchain.path}` : '未指定工具链，生成通用配置。');
 
-  await generateConfigs(folder.uri, language, toolchain);
+  const results = await generateConfigs(folder.uri, language, toolchain);
   channel.appendLine('配置写入完成。');
 
   await vscode.window.showInformationMessage(`.vscode 配置完成（${label}）。`);
+  await warnAboutStaleEntries(results, channel);
+}
+
+/**
+ * 合并只增不减，旧版本生成的条目会原样留存 —— 结果就是升级扩展后修复不生效，而且完全静默。
+ * 这里只做检测与提示，**不修改任何文件**。
+ *
+ * 措辞上不能断言"这些是旧版本生成的"：内容不一致同样可能是用户自己改过。
+ */
+async function warnAboutStaleEntries(
+  results: readonly ConfigFileResult[],
+  channel: vscode.OutputChannel
+): Promise<void> {
+  const stale = results.flatMap((result) =>
+    (result.stale ?? []).map((name) => `${result.fileName} 里的「${name}」`)
+  );
+
+  if (stale.length === 0) {
+    return;
+  }
+
+  channel.appendLine(`检测到 ${stale.length} 条与本版本生成规则不一致的配置：`);
+  for (const item of stale) {
+    channel.appendLine(`  ${item}`);
+  }
+
+  await vscode.window.showWarningMessage(
+    `检测到 ${stale.length} 条配置与当前版本的生成规则不一致：${stale.join('、')}。` +
+      `它们可能是旧版本生成的，也可能是你手动改过的 —— 本扩展不会覆盖已有配置，所以这些条目会一直保持原样。` +
+      `若要套用新版本的生成规则，请先删除 .vscode 目录再重新运行本命令；注意这也会一并丢弃你对这些条目做过的修改。`
+  );
 }
 
 async function pickWorkspaceFolder(): Promise<vscode.WorkspaceFolder | undefined> {

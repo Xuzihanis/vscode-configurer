@@ -37,14 +37,26 @@ export interface ConfigFileResult {
   readonly fileName: string;
   readonly status: 'created' | 'updated' | 'unchanged' | 'skipped';
   readonly detail?: string;
+  /**
+   * 已存在的条目里，名字与本版本会生成的相同、但内容不一致的那些。
+   * 合并逻辑只增不减，这些条目会一直停留在旧内容上，需要提示用户手动清理。
+   */
+  readonly stale?: readonly string[];
 }
 
 const EXE_SUFFIX = isWindows ? '.exe' : '';
 
-const CONFIG_FILES: readonly { fileName: string; key: keyof ConfigBundle }[] = [
+const CONFIG_FILES: readonly {
+  fileName: string;
+  key: keyof ConfigBundle;
+  /** 条目所在数组的键名；settings.json 没有条目数组，故省略。 */
+  arrayKey?: string;
+  /** 条目自身的标识字段，用来判断"这条是不是我们生成的同一项"。 */
+  itemKey?: 'name' | 'label';
+}[] = [
   { fileName: 'settings.json', key: 'settings' },
-  { fileName: 'launch.json', key: 'launch' },
-  { fileName: 'tasks.json', key: 'tasks' },
+  { fileName: 'launch.json', key: 'launch', arrayKey: 'configurations', itemKey: 'name' },
+  { fileName: 'tasks.json', key: 'tasks', arrayKey: 'tasks', itemKey: 'label' },
 ];
 
 function emptyBundle(): ConfigBundle {
@@ -241,6 +253,52 @@ function deepEqual(a: unknown, b: unknown): boolean {
     return keysA.length === keysB.length && keysA.every((key) => deepEqual(a[key], b[key]));
   }
   return false;
+}
+
+/**
+ * 找出「名字与本版本会生成的条目相同、但内容不一致」的已有条目。
+ *
+ * 这条信息存在的理由：合并只增不减，同名条目会被当作「用户已有配置」原样保留，
+ * 于是旧版本生成的条目永远停留在旧内容上——升级扩展后修复不会生效，而且**静默无声**。
+ * 这里只做检测与提示，不改变合并行为本身。
+ *
+ * 注意差异也可能来自用户手动修改了这些条目，所以提示文案不能断言"这是旧版本生成的"。
+ */
+function findStaleEntries(
+  before: Record<string, unknown>,
+  generated: unknown,
+  arrayKey: string,
+  itemKey: 'name' | 'label'
+): string[] {
+  if (!isPlainObject(generated)) {
+    return [];
+  }
+
+  const generatedItems = generated[arrayKey];
+  const existingItems = before[arrayKey];
+  if (!Array.isArray(generatedItems) || !Array.isArray(existingItems)) {
+    return [];
+  }
+
+  const stale: string[] = [];
+  for (const item of generatedItems) {
+    if (!isPlainObject(item)) {
+      continue;
+    }
+    const name = item[itemKey];
+    if (typeof name !== 'string') {
+      continue;
+    }
+
+    const existing = existingItems.find(
+      (candidate) => isPlainObject(candidate) && candidate[itemKey] === name
+    );
+    if (existing && !deepEqual(existing, item)) {
+      stale.push(name);
+    }
+  }
+
+  return stale;
 }
 
 // ---------------------------------------------------------------------------
@@ -721,10 +779,11 @@ export async function readJsonFile(uri: vscode.Uri): Promise<any> {
 
 async function writeOneConfig(
   uri: vscode.Uri,
-  fileName: string,
+  spec: { fileName: string; arrayKey?: string; itemKey?: 'name' | 'label' },
   generated: unknown,
   channel?: vscode.OutputChannel
 ): Promise<ConfigFileResult> {
+  const { fileName } = spec;
   const existing = await readJsonFileDetailed(uri);
 
   // 解析失败时绝不写回：宁可不动，也不能毁掉用户带注释 / 有语法错误的配置文件。
@@ -735,11 +794,20 @@ async function writeOneConfig(
   }
 
   const before = existing.kind === 'object' ? existing.value : {};
+  const stale =
+    spec.arrayKey && spec.itemKey
+      ? findStaleEntries(before, generated, spec.arrayKey, spec.itemKey)
+      : [];
+
+  if (stale.length > 0) {
+    channel?.appendLine(`  [陈旧] ${fileName}：${stale.join('、')} 与当前版本的生成规则不一致`);
+  }
+
   const merged = deepMerge(before, generated);
 
   if (existing.kind === 'object' && deepEqual(before, merged)) {
     channel?.appendLine(`  [无变化] ${fileName}`);
-    return { fileName, status: 'unchanged' };
+    return { fileName, status: 'unchanged', stale };
   }
 
   const text = `${JSON.stringify(merged, null, 4)}\n`;
@@ -747,7 +815,7 @@ async function writeOneConfig(
 
   const status = existing.kind === 'object' ? 'updated' : 'created';
   channel?.appendLine(`  [${status === 'created' ? '新建' : '合并'}] ${fileName}`);
-  return { fileName, status };
+  return { fileName, status, stale };
 }
 
 async function writeBundle(
@@ -757,9 +825,9 @@ async function writeBundle(
 ): Promise<ConfigFileResult[]> {
   const results: ConfigFileResult[] = [];
 
-  for (const { fileName, key } of CONFIG_FILES) {
-    const uri = vscode.Uri.joinPath(vscodeDir, fileName);
-    results.push(await writeOneConfig(uri, fileName, bundle[key], channel));
+  for (const spec of CONFIG_FILES) {
+    const uri = vscode.Uri.joinPath(vscodeDir, spec.fileName);
+    results.push(await writeOneConfig(uri, spec, bundle[spec.key], channel));
   }
 
   return results;
@@ -772,14 +840,17 @@ async function writeBundle(
 /**
  * 为单门语言生成或合并 .vscode 下的三个配置文件。
  * 每个文件都会先读取现有内容再做深度合并，用户已有配置优先。
+ *
+ * 返回每个文件的处理结果，其中 `stale` 列出「名字与本版本会生成的一致、但内容不同」的
+ * 已有条目 —— 调用方应据此提示用户，否则旧版本留下的配置会静默地让新版本失效。
  */
 export async function generateConfigs(
   workspaceRoot: vscode.Uri,
   language: LanguageId,
   toolchain: ToolchainInfo | undefined
-): Promise<void> {
+): Promise<ConfigFileResult[]> {
   const vscodeDir = await ensureVSCodeDir(workspaceRoot);
-  await writeBundle(vscodeDir, await buildBundle(workspaceRoot, language, toolchain));
+  return writeBundle(vscodeDir, await buildBundle(workspaceRoot, language, toolchain));
 }
 
 /**
