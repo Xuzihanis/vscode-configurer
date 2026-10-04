@@ -45,8 +45,9 @@ jobs:
       - name: 编译
         run: npm run compile
 
+      # @vscode/vsce 已锁定在 devDependencies，用 npm script 走同一份版本，避免每次联网拉取
       - name: 打包 .vsix
-        run: npx --yes @vscode/vsce package
+        run: npm run package
 
       # Release 说明直接取 CHANGELOG.md 中该版本的条目，保证两处不会各说各话。
       # 用 index() 做字面匹配，避免把版本号里的 . 当成正则通配符。

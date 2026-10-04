@@ -129,7 +129,7 @@ code --install-extension vscode-configurer-0.0.1.vsix
 npm install          # 安装依赖
 npm run compile      # 编译（tsc -p ./）
 npm run watch        # 监听编译
-npm run package      # 打包成 .vsix（需要 @vscode/vsce）
+npm run package      # 打包成 .vsix（@vscode/vsce 已在 devDependencies，装完依赖即可用）
 ```
 
 调试：用 VS Code 打开本仓库，按 **F5**，在弹出的「扩展开发主机」窗口中运行命令。
