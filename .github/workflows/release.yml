@@ -1,0 +1,60 @@
+name: Release
+
+# 推送 v*.*.* 形式的 tag 时触发，例如：
+#   git tag v0.0.2 && git push origin v0.0.2
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# gh release create / upload 需要写权限
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 打包并发布 .vsix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      # 防止 tag 与 package.json 版本不一致，导致产出的 .vsix 文件名对不上 tag
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          echo "tag = $tag"
+          echo "package.json = $pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag 与 package.json 中的版本 $pkg 不一致。请先把 package.json 的 version 改为 $tag，再重新打 tag。"
+            exit 1
+          fi
+
+      # vsce package 会先跑 vscode:prepublish（即 npm run compile），这里显式再跑一次只是为了失败点更清晰
+      - name: 编译
+        run: npm run compile
+
+      - name: 打包 .vsix
+        run: npx --yes @vscode/vsce package
+
+      # 首次创建 Release；若已存在（例如重跑工作流）则改为覆盖上传附件
+      - name: 创建 / 更新 Release 并上传附件
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            ./*.vsix \
+          || gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber

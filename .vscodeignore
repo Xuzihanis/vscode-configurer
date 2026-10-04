@@ -21,5 +21,8 @@ node_modules/**
 # 内部开发文档，不应随扩展发布
 CLAUDE.md
 
+# CI 配置（GitHub Actions 工作流），与扩展运行无关
+.github/**
+
 # 截图（README 里以相对路径引用，无需打进包里）
 docs/**

@@ -144,6 +144,26 @@ npm run package      # 打包成 .vsix（需要 @vscode/vsce）
 | `src/toolchainDetector.ts` | 跨平台可执行文件查找、版本读取、各语言探测 |
 | `src/configGenerator.ts` | JSONC 解析、深度合并、各语言配置片段生成、读改写回 `.vscode/*.json` |
 
+### 发布新版本
+
+发布由 GitHub Actions 自动完成（`.github/workflows/release.yml`）。流程：
+
+1. 更新 `package.json` 的 `version`（例如改成 `0.0.2`）
+2. 在 `CHANGELOG.md` 里补上对应条目
+3. 提交并推送
+4. 打 tag 并推送 —— **tag 名必须是 `v` + `package.json` 里的版本号**
+
+   ```bash
+   git tag v0.0.2
+   git push origin v0.0.2
+   ```
+
+推送 tag 后，Actions 会自动编译、打包 `.vsix`，并创建对应的 Release 把附件传上去。
+
+工作流里有一道校验：**tag 与 `package.json` 的版本不一致会直接失败**，避免产出文件名与 tag 对不上的 `.vsix`。
+
+如果只想手动打包不上传，本地跑 `npm run package` 即可。
+
 ### 打包注意事项
 
 `.vscodeignore` 排除了 `src/`、`node_modules/`、`tsconfig.json` 等，**但没有排除 `out/`** ——
