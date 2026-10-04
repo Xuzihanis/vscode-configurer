@@ -1,13 +1,13 @@
 name: Release
 
 # 推送 v*.*.* 形式的 tag 时触发，例如：
-#   git tag v0.0.2 && git push origin v0.0.2
+#   git tag v0.0.3 && git push origin v0.0.3
 on:
   push:
     tags:
       - 'v*.*.*'
 
-# gh release create / upload 需要写权限
+# gh release create / edit / upload 需要写权限
 permissions:
   contents: write
 
@@ -48,13 +48,45 @@ jobs:
       - name: 打包 .vsix
         run: npx --yes @vscode/vsce package
 
-      # 首次创建 Release；若已存在（例如重跑工作流）则改为覆盖上传附件
+      # Release 说明直接取 CHANGELOG.md 中该版本的条目，保证两处不会各说各话。
+      # 用 index() 做字面匹配，避免把版本号里的 . 当成正则通配符。
+      - name: 从 CHANGELOG.md 提取本版本说明
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '
+            index($0, "## [" v "]") == 1 { hit = 1; next }
+            index($0, "## [") == 1        { hit = 0 }
+            hit                           { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          if [ -s RELEASE_NOTES.md ]; then
+            echo "已从 CHANGELOG.md 提取 $ver 的说明："
+            cat RELEASE_NOTES.md
+          else
+            rm -f RELEASE_NOTES.md
+            echo "::warning::CHANGELOG.md 中没有 $ver 的条目，本次将使用链接到 CHANGELOG 的占位说明。"
+          fi
+
+      # 首次创建 Release；若已存在（例如重推 tag、重跑工作流）则更新说明并覆盖附件，
+      # 而不是失败退出——这样修 CHANGELOG 之后重推 tag 就能把说明补上。
       - name: 创建 / 更新 Release 并上传附件
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            ./*.vsix \
-          || gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber
+          if [ -f RELEASE_NOTES.md ]; then
+            notes=(--notes-file RELEASE_NOTES.md)
+          else
+            notes=(--notes "详见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)")
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME 已存在，更新说明与附件。"
+            gh release edit "$GITHUB_REF_NAME" "${notes[@]}"
+            gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber
+          else
+            echo "创建 Release $GITHUB_REF_NAME。"
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              "${notes[@]}" \
+              ./*.vsix
+          fi
