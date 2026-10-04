@@ -376,10 +376,13 @@ async function addCpp(
   // 给 .cpp 工作区默认 gcc 会链接失败，给纯 C 工作区默认 g++ 又会把 .c 当 C++ 编译。
   // 只有「有 C 文件且完全没有 C++ 文件」时才默认 C 任务，其余情况默认 C++（g++ 更宽容）。
   const wantedKind = cCount > 0 && cppCount === 0 ? 'c' : 'cpp';
-  const defaultIndex = Math.max(
-    variants.findIndex((variant) => variant.kind === wantedKind),
-    0
-  );
+
+  // 把更可能正确的变体排到最前面。VS Code 的调试配置下拉框默认选中 launch.json 里的
+  // 第一条，顺序排错就等于默认选错——用户在一个还没有源文件的空目录里配置完之后才写
+  // .cpp，若此时 C 变体排在前面，按 F5 就会用 gcc 编译 C++ 并链接失败。
+  // 默认构建任务也取排序后的第一条。
+  variants.sort((a, b) => Number(b.kind === wantedKind) - Number(a.kind === wantedKind));
+  const defaultIndex = 0;
 
   variants.forEach((variant, index) => {
     bundle.tasks.tasks.push({

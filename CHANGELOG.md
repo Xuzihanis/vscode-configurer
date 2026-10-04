@@ -7,22 +7,33 @@
 
 ## [Unreleased]
 
-### 修复
+### 已知限制
 
-- **纯 C++ 工作区仍会生成 C 调试配置**：0.0.2 只修正了「谁是默认构建任务」，但 F5 的下拉框里
-  依然同时存在 `debug active C file` 与 `debug active C++ file`，而下拉框会记住上次选择，
-  选中 C 那条就会用 gcc 编译 `.cpp` 并链接失败。
-  现改为**只生成与工作区匹配的变体**：纯 C++ 工作区只留 C++ 那条，纯 C 工作区只留 C 那条，
-  两类文件都有（或工作区为空）时才两条都生成。
-- **`npm run package` 报 `'vsce' 不是内部或外部命令`**：`package.json` 里的 `"package": "vsce package"`
-  引用了未安装的 vsce。现把 `@vscode/vsce` 加入 devDependencies，CI 也改走 `npm run package`
-  以锁定同一份版本。
+- **已经生成的 `.vscode` 配置不会被新版本更新**。深度合并按 `name` / `label` 去重，同名条目会被
+  当作「用户已有配置」原样保留。因此升级本扩展后想套用新的生成逻辑，需要先删掉 `.vscode`
+  目录再重新运行命令。合并只增不减是刻意设计（绝不覆盖用户手写内容）的代价。
 
 ### 计划中
 
 - 恢复一次配置多门语言（`selectLanguages()` / `configureWorkspaceFolder()` 已在代码中保留，尚未接回命令流程）。
 - 为 C/C++ 产物路径增加按源文件类型区分，避免同目录下 `foo.c` 与 `foo.cpp` 互相覆盖。
 - 在极简 Linux 环境（无 `which`）下回退到 `command -v`。
+
+## [0.0.3] - 2026-10-04
+
+### 修复
+
+- **按 F5 默认选中 C 配置，导致 `.cpp` 文件用 gcc 编译并链接失败。**
+  最常见的用法是「先配置一个还没有源文件的项目目录，再动手写代码」，此时工作区里一个源文件
+  都没有，无从判断语言，两条变体都会生成；而 C 变体排在前面，VS Code 的调试配置下拉框
+  默认选中 `launch.json` 里的第一条，于是 `.cpp` 落到了 gcc 上。
+  现把更可能正确的变体排到最前（空工作区、混合工作区都默认 C++），默认构建任务取同一条。
+- **纯 C++ 工作区仍会生成 C 调试配置。** `Ctrl+Shift+B` 的默认任务在 0.0.2 已修正，但 F5
+  的下拉框里依然同时存在 C 与 C++ 两条。现改为**只生成与工作区匹配的变体**：
+  纯 C++ 工作区只留 C++ 那条，纯 C 工作区只留 C 那条，两类文件都有（或工作区为空）时才两条都生成。
+- **`npm run package` 报 `'vsce' 不是内部或外部命令`。** `package.json` 里的
+  `"package": "vsce package"` 引用了未安装的 vsce。现把 `@vscode/vsce` 加入 devDependencies，
+  CI 也改走 `npm run package` 以锁定同一份版本。
 
 ## [0.0.2] - 2026-10-04
 
@@ -75,6 +86,7 @@
 - C/C++ 按源文件类型生成两条构建任务：C 文件用 `gcc`，C++ 文件用 `g++`。
 - 扩展打包信息：`icon`、`repository`、`keywords` 等。
 
-[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.3
 [0.0.2]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.1
