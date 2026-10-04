@@ -7,6 +7,17 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **纯 C++ 工作区仍会生成 C 调试配置**：0.0.2 只修正了「谁是默认构建任务」，但 F5 的下拉框里
+  依然同时存在 `debug active C file` 与 `debug active C++ file`，而下拉框会记住上次选择，
+  选中 C 那条就会用 gcc 编译 `.cpp` 并链接失败。
+  现改为**只生成与工作区匹配的变体**：纯 C++ 工作区只留 C++ 那条，纯 C 工作区只留 C 那条，
+  两类文件都有（或工作区为空）时才两条都生成。
+- **`npm run package` 报 `'vsce' 不是内部或外部命令`**：`package.json` 里的 `"package": "vsce package"`
+  引用了未安装的 vsce。现把 `@vscode/vsce` 加入 devDependencies，CI 也改走 `npm run package`
+  以锁定同一份版本。
+
 ### 计划中
 
 - 恢复一次配置多门语言（`selectLanguages()` / `configureWorkspaceFolder()` 已在代码中保留，尚未接回命令流程）。

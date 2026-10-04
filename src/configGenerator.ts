@@ -327,8 +327,20 @@ async function addCpp(
   const cCompiler = (await findExecutable('gcc')) ?? (await findExecutable('clang'));
   const cppCompiler = (await findExecutable('g++')) ?? (await findExecutable('clang++'));
 
+  // 先看工作区里到底有什么源文件 —— 这同时决定「生成哪些变体」和「谁是默认任务」。
+  const cCount = cCompiler ? await countSourceFiles(workspaceRoot, C_SOURCE_EXTS) : 0;
+  const cppCount = cppCompiler ? await countSourceFiles(workspaceRoot, CPP_SOURCE_EXTS) : 0;
+  const isEmptyWorkspace = cCount === 0 && cppCount === 0;
+
+  // 只生成与工作区匹配的变体。纯 C++ 工作区里再摆一条 C 调试配置只会让人选错——
+  // F5 的下拉框会记住上次选择，落到 gcc 那条就链接失败。两种情况仍生成两条：
+  //   - 两类源文件都存在 → 此时选择无法避免
+  //   - 工作区为空       → 无从判断，不武断地砍掉一种
+  const emitC = Boolean(cCompiler) && (cCount > 0 || isEmptyWorkspace);
+  const emitCpp = Boolean(cppCompiler) && (cppCount > 0 || isEmptyWorkspace);
+
   const variants: CppVariant[] = [];
-  if (cCompiler) {
+  if (cCompiler && emitC) {
     variants.push({
       kind: 'c',
       taskLabel: 'C/C++: build active C file',
@@ -338,7 +350,7 @@ async function addCpp(
       detail: `使用 ${isMacOS ? 'gcc (clang shim)' : 'gcc'} 编译当前 C 文件`,
     });
   }
-  if (cppCompiler) {
+  if (cppCompiler && emitCpp) {
     variants.push({
       kind: 'cpp',
       taskLabel: 'C/C++: build active C++ file',
@@ -348,22 +360,21 @@ async function addCpp(
       detail: `使用 ${isMacOS ? 'g++ (clang shim)' : 'g++'} 编译当前 C++ 文件`,
     });
   }
-  // 两个都没探测到：退化成一条通用任务，配置仍可用（但用户需自行确认编译器）。
+  // 一个变体都没生成（没探测到编译器，或工作区内容与已装编译器对不上）：
+  // 退化成一条通用任务，配置仍可用，只是需要用户自行确认编译器。
   if (variants.length === 0) {
     variants.push({
       kind: 'fallback',
       taskLabel: 'C/C++: build active file',
       launchName: 'C/C++: debug active file',
       compiler: toolchain?.path ?? 'g++',
-      detail: '未探测到 gcc / g++，使用通用编译器命令',
+      detail: '未探测到匹配的 gcc / g++，使用通用编译器命令',
     });
   }
 
-  // 默认构建任务必须与工作区的源文件类型匹配：Ctrl+Shift+B 跑的就是默认任务，
+  // 默认构建任务同样要与工作区匹配：Ctrl+Shift+B 跑的就是默认任务，
   // 给 .cpp 工作区默认 gcc 会链接失败，给纯 C 工作区默认 g++ 又会把 .c 当 C++ 编译。
   // 只有「有 C 文件且完全没有 C++ 文件」时才默认 C 任务，其余情况默认 C++（g++ 更宽容）。
-  const cCount = cCompiler ? await countSourceFiles(workspaceRoot, C_SOURCE_EXTS) : 0;
-  const cppCount = cppCompiler ? await countSourceFiles(workspaceRoot, CPP_SOURCE_EXTS) : 0;
   const wantedKind = cCount > 0 && cppCount === 0 ? 'c' : 'cpp';
   const defaultIndex = Math.max(
     variants.findIndex((variant) => variant.kind === wantedKind),
