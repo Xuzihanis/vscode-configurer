@@ -23,9 +23,13 @@ interface TaskDefinition extends Record<string, unknown> {
 
 /** C/C++ 的一条「源文件类型 → 编译器」映射，每个变体生成一组 task + launch。 */
 interface CppVariant {
+  /** 该变体处理哪类源文件，用于决定谁是默认构建任务。 */
+  readonly kind: 'c' | 'cpp' | 'fallback';
   readonly taskLabel: string;
   readonly launchName: string;
   readonly compiler: string;
+  /** 传给编译器的语言标准参数，如 `-std=c++17`。 */
+  readonly stdFlag?: string;
   readonly detail: string;
 }
 
@@ -243,7 +247,68 @@ function deepEqual(a: unknown, b: unknown): boolean {
 // 各语言的配置片段
 // ---------------------------------------------------------------------------
 
-async function addCpp(bundle: ConfigBundle, toolchain: ToolchainInfo | undefined): Promise<void> {
+/** 扫描时跳过的目录，避免在依赖与构建产物里白跑。 */
+const SKIPPED_DIRS = new Set([
+  'node_modules',
+  'out',
+  'build',
+  'dist',
+  'target',
+  'bin',
+  'obj',
+  'venv',
+  '__pycache__',
+]);
+
+/**
+ * 有上限地统计工作区中某几类源文件的数量，用于推断工作区以 C 还是 C++ 为主。
+ * 目录不可读（权限等）时跳过该目录，不影响其余分支；达到上限即提前返回。
+ */
+async function countSourceFiles(
+  root: vscode.Uri,
+  extensions: ReadonlySet<string>,
+  limit = 100
+): Promise<number> {
+  const queue: vscode.Uri[] = [root];
+  let files = 0;
+  let visited = 0;
+
+  while (queue.length > 0 && files < limit && visited < 3000) {
+    const dir = queue.shift();
+    if (!dir) {
+      break;
+    }
+
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dir);
+    } catch {
+      continue;
+    }
+
+    for (const [name, type] of entries) {
+      visited += 1;
+      if (type === vscode.FileType.Directory) {
+        if (!SKIPPED_DIRS.has(name) && !name.startsWith('.')) {
+          queue.push(vscode.Uri.joinPath(dir, name));
+        }
+      } else if (extensions.has(path.extname(name).toLowerCase())) {
+        files += 1;
+      }
+    }
+  }
+
+  return files;
+}
+
+const C_SOURCE_EXTS: ReadonlySet<string> = new Set(['.c']);
+const CPP_SOURCE_EXTS: ReadonlySet<string> = new Set(['.cpp', '.cxx', '.cc', '.c++']);
+
+async function addCpp(
+  bundle: ConfigBundle,
+  toolchain: ToolchainInfo | undefined,
+  workspaceRoot: vscode.Uri
+): Promise<void> {
   const debuggerPath = await findExecutable(isMacOS ? 'lldb' : 'gdb');
   // 产物与源文件同目录，与 launch.json 的 program 保持一致。
   const outputPath = `\${fileDirname}/\${fileBasenameNoExtension}${EXE_SUFFIX}`;
@@ -265,23 +330,28 @@ async function addCpp(bundle: ConfigBundle, toolchain: ToolchainInfo | undefined
   const variants: CppVariant[] = [];
   if (cCompiler) {
     variants.push({
+      kind: 'c',
       taskLabel: 'C/C++: build active C file',
       launchName: 'C/C++: debug active C file',
       compiler: cCompiler,
+      stdFlag: '-std=c17',
       detail: `使用 ${isMacOS ? 'gcc (clang shim)' : 'gcc'} 编译当前 C 文件`,
     });
   }
   if (cppCompiler) {
     variants.push({
+      kind: 'cpp',
       taskLabel: 'C/C++: build active C++ file',
       launchName: 'C/C++: debug active C++ file',
       compiler: cppCompiler,
+      stdFlag: '-std=c++17',
       detail: `使用 ${isMacOS ? 'g++ (clang shim)' : 'g++'} 编译当前 C++ 文件`,
     });
   }
   // 两个都没探测到：退化成一条通用任务，配置仍可用（但用户需自行确认编译器）。
   if (variants.length === 0) {
     variants.push({
+      kind: 'fallback',
       taskLabel: 'C/C++: build active file',
       launchName: 'C/C++: debug active file',
       compiler: toolchain?.path ?? 'g++',
@@ -289,16 +359,36 @@ async function addCpp(bundle: ConfigBundle, toolchain: ToolchainInfo | undefined
     });
   }
 
+  // 默认构建任务必须与工作区的源文件类型匹配：Ctrl+Shift+B 跑的就是默认任务，
+  // 给 .cpp 工作区默认 gcc 会链接失败，给纯 C 工作区默认 g++ 又会把 .c 当 C++ 编译。
+  // 只有「有 C 文件且完全没有 C++ 文件」时才默认 C 任务，其余情况默认 C++（g++ 更宽容）。
+  const cCount = cCompiler ? await countSourceFiles(workspaceRoot, C_SOURCE_EXTS) : 0;
+  const cppCount = cppCompiler ? await countSourceFiles(workspaceRoot, CPP_SOURCE_EXTS) : 0;
+  const wantedKind = cCount > 0 && cppCount === 0 ? 'c' : 'cpp';
+  const defaultIndex = Math.max(
+    variants.findIndex((variant) => variant.kind === wantedKind),
+    0
+  );
+
   variants.forEach((variant, index) => {
     bundle.tasks.tasks.push({
       label: variant.taskLabel,
       type: 'shell',
       command: variant.compiler,
-      args: ['-fdiagnostics-color=always', '-g', '${file}', '-o', outputPath],
+      args: [
+        '-fdiagnostics-color=always',
+        '-g',
+        // 显式指定语言标准，避免 IntelliSense（settings.json 里的 cppStandard/cStandard）
+        // 与实际编译参数脱节。GCC 默认是 gnu++17，想保留 GNU 扩展可改成 gnu++17。
+        ...(variant.stdFlag ? [variant.stdFlag] : []),
+        '${file}',
+        '-o',
+        outputPath,
+      ],
       options: { cwd: '${fileDirname}' },
       problemMatcher: ['$gcc'],
-      // 只有第一条作为默认构建任务，避免多条同时抢占 Ctrl+Shift+B。
-      group: { kind: 'build', isDefault: index === 0 },
+      // 只有一条作为默认构建任务，避免多条同时抢占 Ctrl+Shift+B。
+      group: { kind: 'build', isDefault: index === defaultIndex },
       detail: variant.detail,
     });
 
@@ -306,12 +396,15 @@ async function addCpp(bundle: ConfigBundle, toolchain: ToolchainInfo | undefined
       name: variant.launchName,
       type: 'cppdbg',
       request: 'launch',
-      program: `${outputPath}`,
+      program: outputPath,
       args: [],
       stopAtEntry: false,
       cwd: '${fileDirname}',
       environment: [],
-      externalConsole: false,
+      // cppdbg 不支持 console 属性（写上会报 "Property console is not allowed"），
+      // 只能靠 externalConsole 让 cin/scanf 拿到输入——false 时程序跑在 Debug Console 里，
+      // 那里不接受 stdin，读输入会直接报错。
+      externalConsole: true,
       MIMode: isMacOS ? 'lldb' : 'gdb',
       ...(debuggerPath ? { miDebuggerPath: debuggerPath } : {}),
       setupCommands: [
@@ -507,12 +600,16 @@ async function addNode(bundle: ConfigBundle, toolchain: ToolchainInfo | undefine
 }
 
 /** 汇总单门语言的配置片段。 */
-async function buildBundle(language: LanguageId, toolchain: ToolchainInfo | undefined): Promise<ConfigBundle> {
+async function buildBundle(
+  workspaceRoot: vscode.Uri,
+  language: LanguageId,
+  toolchain: ToolchainInfo | undefined
+): Promise<ConfigBundle> {
   const bundle = emptyBundle();
 
   switch (language) {
     case 'cpp':
-      await addCpp(bundle, toolchain);
+      await addCpp(bundle, toolchain, workspaceRoot);
       break;
     case 'python':
       addPython(bundle, toolchain);
@@ -533,13 +630,14 @@ async function buildBundle(language: LanguageId, toolchain: ToolchainInfo | unde
 
 /** 把多门语言的片段合成一个 bundle，最终每个文件只写一次。 */
 async function buildCombinedBundle(
+  workspaceRoot: vscode.Uri,
   languages: readonly LanguageDefinition[],
   toolchains: ReadonlyMap<LanguageId, ToolchainInfo | undefined>
 ): Promise<ConfigBundle> {
   const combined = emptyBundle();
 
   for (const language of languages) {
-    const bundle = await buildBundle(language.id, toolchains.get(language.id));
+    const bundle = await buildBundle(workspaceRoot, language.id, toolchains.get(language.id));
     combined.settings = mergeInto(combined.settings, bundle.settings) as Record<string, unknown>;
     combined.launch.configurations.push(...bundle.launch.configurations);
     combined.tasks.tasks.push(...bundle.tasks.tasks);
@@ -663,7 +761,7 @@ export async function generateConfigs(
   toolchain: ToolchainInfo | undefined
 ): Promise<void> {
   const vscodeDir = await ensureVSCodeDir(workspaceRoot);
-  await writeBundle(vscodeDir, await buildBundle(language, toolchain));
+  await writeBundle(vscodeDir, await buildBundle(workspaceRoot, language, toolchain));
 }
 
 /**
@@ -677,6 +775,6 @@ export async function configureWorkspaceFolder(
   channel: vscode.OutputChannel
 ): Promise<ConfigFileResult[]> {
   const vscodeDir = await ensureVSCodeDir(folder.uri);
-  const bundle = await buildCombinedBundle(languages, toolchains);
+  const bundle = await buildCombinedBundle(folder.uri, languages, toolchains);
   return writeBundle(vscodeDir, bundle, channel);
 }

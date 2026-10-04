@@ -13,6 +13,37 @@
 - 为 C/C++ 产物路径增加按源文件类型区分，避免同目录下 `foo.c` 与 `foo.cpp` 互相覆盖。
 - 在极简 Linux 环境（无 `which`）下回退到 `command -v`。
 
+## [0.0.2] - 2026-10-04
+
+### 修复
+
+- **默认构建任务会编译失败**：此前固定把 C 任务（`gcc`）设为 `isDefault`，在 `.cpp` 工作区按
+  `Ctrl+Shift+B` 会用 gcc 编译 C++ 文件，链接期报 `undefined reference to std::cout` 等错误，
+  同时导致 `debug active C file` 这条调试配置对 `.cpp` 文件完全不可用。
+  现改为扫描工作区实际内容决定默认任务，详见下方"默认构建任务的判定规则"。
+- **调试时无法输入**：两个 cppdbg 配置原先都是 `externalConsole: false`，程序运行在只读的
+  Debug Console 中，`cin` / `scanf` 会报 "does not support stdin input"。现改为
+  `externalConsole: true`。
+  - 注：cppdbg **不支持** `console` 属性，写上会报 `Property console is not allowed`，
+    因此不能用 `console: integratedTerminal` 来避免弹出独立窗口。
+- **编译参数缺少语言标准**：`settings.json` 里的 `cppStandard` / `cStandard` 只作用于 IntelliSense，
+  不影响真实编译，导致编辑器提示与实际构建可能脱节。现两个任务分别显式传入
+  `-std=c17` 与 `-std=c++17`。
+
+### 默认构建任务的判定规则
+
+`Ctrl+Shift+B` 直接运行默认构建任务，因此默认任务必须与工作区的源文件类型匹配：
+
+| 工作区构成 | 默认任务 |
+| --- | --- |
+| 只含 `.cpp` / `.cc` / `.cxx` | C++ 任务（`g++`） |
+| 只含 `.c` | C 任务（`gcc`） |
+| 两者都有 | C++ 任务（`g++` 更宽容，也能把 `.c` 当 C++ 编译） |
+| 空工作区 | C++ 任务 |
+
+扫描会跳过 `node_modules`、`build`、`dist`、`target`、`bin`、`obj` 与隐藏目录，并有上限
+（100 个源文件 / 3000 个目录项），不会在大仓库里拖慢。
+
 ## [0.0.1] - 2026-10-03
 
 首个版本。
@@ -33,5 +64,6 @@
 - C/C++ 按源文件类型生成两条构建任务：C 文件用 `gcc`，C++ 文件用 `g++`。
 - 扩展打包信息：`icon`、`repository`、`keywords` 等。
 
-[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/Xuzihanis/vscode-configurer/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.2
 [0.0.1]: https://github.com/Xuzihanis/vscode-configurer/releases/tag/v0.0.1
