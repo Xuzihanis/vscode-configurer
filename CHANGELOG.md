@@ -23,6 +23,18 @@
 
 ### 修复
 
+- **程序输出被放到独立控制台窗口，而不是 VS Code 集成终端。** 0.0.2 依据一份「`externalConsole: false`
+  时 stdin 不可用」的分析把该值改成了 `true`，那个结论不准确。cpptools 自带的官方说明是：
+
+  > "If true, a console is launched for the debuggee. If false, **on Linux and Windows, it will
+  > appear in the Integrated Console**."
+
+  即 `false` 才会把输出放进集成终端，`true` 反而弹出独立窗口。现按平台取值：
+  Windows / Linux 用 `false`（输出进集成终端），macOS 用 `true`（cppdbg 在 macOS 走 lldb-mi，
+  不支持集成终端）。
+  - 注：cppdbg **没有** `console` 属性（cpptools 1.34.4 的 launch schema 共 40 个属性，既不含
+    `console` 也不含 `terminal`），因此无法用 `console: "integratedTerminal"` 这种标准写法来
+    指定输出位置。这一点是直接读取本机已安装扩展的 `package.json` 确认的，不是凭印象。
 - **按 F5 默认选中 C 配置，导致 `.cpp` 文件用 gcc 编译并链接失败。**
   最常见的用法是「先配置一个还没有源文件的项目目录，再动手写代码」，此时工作区里一个源文件
   都没有，无从判断语言，两条变体都会生成；而 C 变体排在前面，VS Code 的调试配置下拉框
@@ -46,8 +58,8 @@
 - **调试时无法输入**：两个 cppdbg 配置原先都是 `externalConsole: false`，程序运行在只读的
   Debug Console 中，`cin` / `scanf` 会报 "does not support stdin input"。现改为
   `externalConsole: true`。
-  - 注：cppdbg **不支持** `console` 属性，写上会报 `Property console is not allowed`，
-    因此不能用 `console: integratedTerminal` 来避免弹出独立窗口。
+  > ⚠️ 此条结论**有误**，已在 [0.0.3] 回退：`false` 在 Windows / Linux 上输出的就是集成终端，
+  > 改成 `true` 反而把输出赶到独立控制台窗口。
 - **编译参数缺少语言标准**：`settings.json` 里的 `cppStandard` / `cStandard` 只作用于 IntelliSense，
   不影响真实编译，导致编辑器提示与实际构建可能脱节。现两个任务分别显式传入
   `-std=c17` 与 `-std=c++17`。

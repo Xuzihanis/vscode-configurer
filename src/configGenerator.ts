@@ -415,10 +415,14 @@ async function addCpp(
       stopAtEntry: false,
       cwd: '${fileDirname}',
       environment: [],
-      // cppdbg 不支持 console 属性（写上会报 "Property console is not allowed"），
-      // 只能靠 externalConsole 让 cin/scanf 拿到输入——false 时程序跑在 Debug Console 里，
-      // 那里不接受 stdin，读输入会直接报错。
-      externalConsole: true,
+      // 依据 cpptools 自带的官方说明（package.nls.json）：
+      //   "If true, a console is launched for the debuggee.
+      //    If false, on Linux and Windows, it will appear in the Integrated Console."
+      // 即 false 才把程序输出放进 VS Code 的集成终端；true 反而会弹出独立的控制台窗口。
+      // 注意 cppdbg 没有 console 属性（schema 里不存在，写上会被判为未知属性），
+      // 所以「输出到集成终端」只能靠 externalConsole: false。
+      // macOS 例外：cppdbg 走 lldb-mi，不支持集成终端，只能用 true 才能有可交互的控制台。
+      externalConsole: isMacOS,
       MIMode: isMacOS ? 'lldb' : 'gdb',
       ...(debuggerPath ? { miDebuggerPath: debuggerPath } : {}),
       setupCommands: [
